@@ -1,121 +1,282 @@
--- Single-source admin (place copy as Script in ServerScriptService AND as LocalScript in StarterPlayerScripts)
--- Server side will run the admin commands; client side will build the Rayfield UI.
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
-local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-
--- Ensure RemoteEvent exists server-side (only runs when this file is a Script in ServerScriptService)
-if RunService:IsServer() then
-    local AdminCommand = ReplicatedStorage:FindFirstChild("AdminCommand")
-    if not AdminCommand then
-        AdminCommand = Instance.new("RemoteEvent")
-        AdminCommand.Name = "AdminCommand"
-        AdminCommand.Parent = ReplicatedStorage
-    end
-
-    -- Admin whitelist
-    local admins = {
-        ["YourUsernameHere"] = true
-    }
-
-    AdminCommand.OnServerEvent:Connect(function(player, command, arg)
-        if not admins[player.Name] then
-            warn(player.Name .. " tried to use admin command: " .. tostring(command))
-            return
-        end
-
-        if command == "WalkSpeed" then
-            local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.WalkSpeed = tonumber(arg) or arg
-            end
-
-        elseif command == "JumpPower" then
-            local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.JumpPower = tonumber(arg) or arg
-            end
-
-        elseif command == "Announce" then
-            local msg = tostring(arg or "")
-            for _, plr in ipairs(Players:GetPlayers()) do
-                -- Chat system message for everyone
-                game.StarterGui:SetCore("ChatMakeSystemMessage", {
-                    Text = "[ANNOUNCEMENT] " .. msg,
-                    Color = Color3.fromRGB(255, 200, 0),
-                    Font = Enum.Font.SourceSansBold,
-                    FontSize = Enum.FontSize.Size24
-                })
-            end
-        end
-    end)
-
-    return -- server done
-end
-
--- ---------------------------
--- CLIENT SIDE (LocalScript)
--- ---------------------------
--- Wait for or fail if the RemoteEvent doesn't exist yet
-local AdminCommand = ReplicatedStorage:WaitForChild("AdminCommand", 10)
-if not AdminCommand then
-    warn("AdminCommand RemoteEvent not found in ReplicatedStorage. Make sure the server script ran.")
-    return
-end
-
--- Load Rayfield safely
-local ok, Rayfield = pcall(function()
-    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-end)
-if not ok or not Rayfield then
-    warn("Failed to load Rayfield. If you're in a published game, HttpGet may be blocked or URL changed.")
-    return
-end
-
--- Build Rayfield UI
 local Window = Rayfield:CreateWindow({
-    Name = "Simple FE Admin",
-    LoadingTitle = "Admin Panel",
-    LoadingSubtitle = "Walk, Jump, Announce",
-    ConfigurationSaving = { Enabled = false }
+   Name = "FE Admin Hub",
+   Icon = 0,
+   LoadingTitle = "Admin Hub",
+   LoadingSubtitle = "Rayfield UI",
+   Theme = "Default",
 })
 
-local MainTab = Window:CreateTab("Main")
+-- Tabs
+local MainTab = Window:CreateTab("Main", 4483362458)
+local FunTab = Window:CreateTab("Fun", 4483362458)
+local WorldTab = Window:CreateTab("World", 4483362458)
 
--- Create variables for each control (so you can later reference them if needed)
-local wsSlider = MainTab:CreateSlider({
-    Name = "WalkSpeed",
-    Range = {16, 200},
-    Increment = 1,
-    CurrentValue = 16,
-    Flag = "WalkSpeed",
-    Callback = function(value)
-        AdminCommand:FireServer("WalkSpeed", value)
-    end,
+------------------------------------------------
+-- Core: WalkSpeed / JumpPower
+MainTab:CreateSlider({
+   Name = "WalkSpeed",
+   Range = {16, 200},
+   Increment = 1,
+   CurrentValue = 16,
+   Callback = function(Value)
+      local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+      if hum then hum.WalkSpeed = Value end
+   end,
 })
 
-local jpSlider = MainTab:CreateSlider({
-    Name = "JumpPower",
-    Range = {50, 500},
-    Increment = 5,
-    CurrentValue = 50,
-    Flag = "JumpPower",
-    Callback = function(value)
-        AdminCommand:FireServer("JumpPower", value)
-    end,
+MainTab:CreateSlider({
+   Name = "JumpPower",
+   Range = {50, 300},
+   Increment = 1,
+   CurrentValue = 50,
+   Callback = function(Value)
+      local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+      if hum then hum.JumpPower = Value end
+   end,
 })
 
-local announceInput = MainTab:CreateInput({
-    Name = "Announce",
-    PlaceholderText = "Enter announcement...",
-    RemoveTextAfterFocusLost = true,
-    Callback = function(text)
-        if text and text:match("%S") then
-            AdminCommand:FireServer("Announce", text)
-        end
-    end,
+------------------------------------------------
+-- Fly
+local flying = false
+MainTab:CreateToggle({
+   Name = "Fly",
+   CurrentValue = false,
+   Callback = function(Value)
+      flying = Value
+      local player = game.Players.LocalPlayer
+      local char = player.Character or player.CharacterAdded:Wait()
+      local hrp = char:WaitForChild("HumanoidRootPart")
+
+      if flying then
+         local bv = Instance.new("BodyVelocity")
+         bv.Velocity = Vector3.zero
+         bv.MaxForce = Vector3.new(4000,4000,4000)
+         bv.Parent = hrp
+
+         game:GetService("RunService").Heartbeat:Connect(function()
+            if flying and bv.Parent then
+               local camCF = workspace.CurrentCamera.CFrame
+               local moveDir = Vector3.zero
+               local uis = game.UserInputService
+               if uis:IsKeyDown(Enum.KeyCode.W) then moveDir += camCF.LookVector end
+               if uis:IsKeyDown(Enum.KeyCode.S) then moveDir -= camCF.LookVector end
+               if uis:IsKeyDown(Enum.KeyCode.A) then moveDir -= camCF.RightVector end
+               if uis:IsKeyDown(Enum.KeyCode.D) then moveDir += camCF.RightVector end
+               bv.Velocity = moveDir * 60
+            elseif bv then
+               bv:Destroy()
+            end
+         end)
+      else
+         if hrp:FindFirstChildOfClass("BodyVelocity") then
+            hrp:FindFirstChildOfClass("BodyVelocity"):Destroy()
+         end
+      end
+   end,
 })
 
--- Optional: small confirmation print
-print("Simple FE Admin UI loaded (Rayfield).")
+------------------------------------------------
+-- GodMode
+local godmode = false
+MainTab:CreateToggle({
+   Name = "GodMode",
+   CurrentValue = false,
+   Callback = function(Value)
+      godmode = Value
+      local player = game.Players.LocalPlayer
+      task.spawn(function()
+         while godmode do
+            local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+            if hum then hum.Health = hum.MaxHealth end
+            task.wait(0.2)
+         end
+      end)
+   end,
+})
+
+------------------------------------------------
+-- Player Utilities
+local function getPlayers()
+   local names = {}
+   for _,plr in pairs(game.Players:GetPlayers()) do
+      if plr ~= game.Players.LocalPlayer then
+         table.insert(names, plr.Name)
+      end
+   end
+   return names
+end
+
+MainTab:CreateDropdown({
+   Name = "Teleport to Player",
+   Options = getPlayers(),
+   CurrentOption = "",
+   Callback = function(Option)
+      local lp = game.Players.LocalPlayer
+      if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+         local target = game.Players:FindFirstChild(Option)
+         if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            lp.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(0,3,0)
+         end
+      end
+   end,
+})
+
+------------------------------------------------
+-- Fun: Jail
+FunTab:CreateDropdown({
+   Name = "Jail Player",
+   Options = getPlayers(),
+   CurrentOption = "",
+   Callback = function(Option)
+      local target = game.Players:FindFirstChild(Option)
+      if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+         local cage = Instance.new("Part")
+         cage.Size = Vector3.new(6, 10, 6)
+         cage.Anchored = true
+         cage.Position = target.Character.HumanoidRootPart.Position
+         cage.Transparency = 0.5
+         cage.Parent = workspace
+      end
+   end,
+})
+
+------------------------------------------------
+-- Fun: Freeze Player
+FunTab:CreateDropdown({
+   Name = "Freeze Player",
+   Options = getPlayers(),
+   CurrentOption = "",
+   Callback = function(Option)
+      local target = game.Players:FindFirstChild(Option)
+      if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+         target.Character.HumanoidRootPart.Anchored = true
+      end
+   end,
+})
+
+-- Fun: Bring Player
+FunTab:CreateDropdown({
+   Name = "Bring Player",
+   Options = getPlayers(),
+   CurrentOption = "",
+   Callback = function(Option)
+      local target = game.Players:FindFirstChild(Option)
+      local lp = game.Players.LocalPlayer
+      if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+         if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+            target.Character.HumanoidRootPart.CFrame = lp.Character.HumanoidRootPart.CFrame + Vector3.new(3,0,0)
+         end
+      end
+   end,
+})
+
+------------------------------------------------
+-- Fun: Sit All
+FunTab:CreateButton({
+   Name = "Sit Everyone",
+   Callback = function()
+      for _,plr in pairs(game.Players:GetPlayers()) do
+         local hum = plr.Character and plr.Character:FindFirstChild("Humanoid")
+         if hum then hum.Sit = true end
+      end
+   end,
+})
+
+------------------------------------------------
+-- Fun: ESP (Highlight)
+FunTab:CreateToggle({
+   Name = "ESP",
+   CurrentValue = false,
+   Callback = function(Value)
+      for _,plr in pairs(game.Players:GetPlayers()) do
+         if plr ~= game.Players.LocalPlayer and plr.Character then
+            if Value then
+               local h = Instance.new("Highlight")
+               h.FillTransparency = 1
+               h.OutlineColor = Color3.fromRGB(0,255,0)
+               h.Parent = plr.Character
+            else
+               if plr.Character:FindFirstChildOfClass("Highlight") then
+                  plr.Character:FindFirstChildOfClass("Highlight"):Destroy()
+               end
+            end
+         end
+      end
+   end,
+})
+
+------------------------------------------------
+-- Fun: Clone Yourself
+FunTab:CreateButton({
+   Name = "Clone Yourself",
+   Callback = function()
+      local lp = game.Players.LocalPlayer
+      if lp.Character then
+         local clone = lp.Character:Clone()
+         clone.Parent = workspace
+         clone:MoveTo(lp.Character:GetPivot().p + Vector3.new(5,0,0))
+      end
+   end,
+})
+
+------------------------------------------------
+-- World: Gravity
+WorldTab:CreateSlider({
+   Name = "Gravity",
+   Range = {0, 500},
+   Increment = 5,
+   CurrentValue = workspace.Gravity,
+   Callback = function(Value)
+      workspace.Gravity = Value
+   end,
+})
+
+------------------------------------------------
+-- World: Disco Lighting
+local disco = false
+WorldTab:CreateToggle({
+   Name = "Disco Lighting",
+   CurrentValue = false,
+   Callback = function(Value)
+      disco = Value
+      task.spawn(function()
+         while disco do
+            game.Lighting.Ambient = Color3.fromRGB(math.random(0,255), math.random(0,255), math.random(0,255))
+            task.wait(0.3)
+         end
+      end)
+   end,
+})
+
+------------------------------------------------
+-- World: Music Player
+WorldTab:CreateInput({
+   Name = "Play Music (SoundId)",
+   PlaceholderText = "Enter SoundId...",
+   RemoveTextAfterFocusLost = true,
+   Callback = function(Text)
+      local sound = Instance.new("Sound", workspace)
+      sound.SoundId = "rbxassetid://"..Text
+      sound.Volume = 5
+      sound.Looped = true
+      sound:Play()
+   end,
+})
+
+------------------------------------------------
+-- Announce
+MainTab:CreateInput({
+   Name = "Announce",
+   PlaceholderText = "Type a message...",
+   RemoveTextAfterFocusLost = true,
+   Callback = function(Text)
+      game.StarterGui:SetCore("ChatMakeSystemMessage", {
+         Text = "[ANNOUNCEMENT] " .. Text,
+         Color = Color3.fromRGB(255, 200, 0),
+         Font = Enum.Font.SourceSansBold,
+         FontSize = Enum.FontSize.Size24
+      })
+   end,
+})
